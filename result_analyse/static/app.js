@@ -96,7 +96,9 @@ function onDatasetChange() {
 
     // 填充样本下拉框
     const samples = datasets[dataset];
-    samples.sort().forEach(sample => {
+    
+    // 使用 localeCompare 开启 numeric 选项进行自然排序
+    samples.sort((a, b) => a.localeCompare(b, undefined, { numeric: true })).forEach(sample => {
         const option = document.createElement('option');
         option.value = sample;
         option.textContent = sample;
@@ -465,78 +467,78 @@ function updateChart2() {
 }
 
 // 图三：关联性散点图 (保持不变)
-// function updateChart3() {
-//     const { value, anomaly_score } = currentData;
+function updateChart3() {
+    const { value, anomaly_score } = currentData;
 
-//     // 计算散点数据 [abs(value), anomaly_score]
-//     const scatterData = [];
-//     for (let i = 0; i < value.length; i++) {
-//         scatterData.push([Math.abs(value[i]), anomaly_score[i]]);
-//     }
+    // 计算散点数据 [abs(value), anomaly_score]
+    const scatterData = [];
+    for (let i = 0; i < value.length; i++) {
+        scatterData.push([Math.abs(value[i]), anomaly_score[i]]);
+    }
 
-//     const option = {
-//         animation: false,
-//         tooltip: {
-//             trigger: 'item',
-//             formatter: params => `|value|: ${params.value[0].toFixed(4)}<br/>score: ${params.value[1].toFixed(4)}`
-//         },
-//         grid: {
-//             left: 70,
-//             right: 30,
-//             top: 30,
-//             bottom: 80
-//         },
-//         xAxis: {
-//             type: 'value',
-//             name: '|value|',
-//             nameLocation: 'middle',
-//             nameGap: 40
-//         },
-//         yAxis: {
-//             type: 'value',
-//             name: '异常分数',
-//             nameLocation: 'middle',
-//             nameGap: 50,
-//             min: 0,
-//             max: 1
-//         },
-//         dataZoom: [
-//             {
-//                 type: 'slider',
-//                 xAxisIndex: 0,
-//                 start: 0,
-//                 end: 100,
-//                 height: 20,
-//                 bottom: 10
-//             },
-//             {
-//                 type: 'slider',
-//                 yAxisIndex: 0,
-//                 start: 0,
-//                 end: 100,
-//                 width: 20,
-//                 right: 10
-//             },
-//             {
-//                 type: 'inside',
-//                 xAxisIndex: 0,
-//                 yAxisIndex: 0
-//             }
-//         ],
-//         series: [{
-//             type: 'scatter',
-//             data: scatterData,
-//             large: true,
-//             largeThreshold: 2000,
-//             symbolSize: 3,
-//             itemStyle: {
-//                 color: 'rgba(59, 130, 246, 0.5)'
-//             }
-//         }]
-//     };
+    const option = {
+        animation: false,
+        tooltip: {
+            trigger: 'item',
+            formatter: params => `|value|: ${params.value[0].toFixed(4)}<br/>score: ${params.value[1].toFixed(4)}`
+        },
+        grid: {
+            left: 70,
+            right: 30,
+            top: 30,
+            bottom: 80
+        },
+        xAxis: {
+            type: 'value',
+            name: '|value|',
+            nameLocation: 'middle',
+            nameGap: 40
+        },
+        yAxis: {
+            type: 'value',
+            name: '异常分数',
+            nameLocation: 'middle',
+            nameGap: 50,
+            min: 0,
+            max: 1
+        },
+        dataZoom: [
+            {
+                type: 'slider',
+                xAxisIndex: 0,
+                start: 0,
+                end: 100,
+                height: 20,
+                bottom: 10
+            },
+            {
+                type: 'slider',
+                yAxisIndex: 0,
+                start: 0,
+                end: 100,
+                width: 20,
+                right: 10
+            },
+            {
+                type: 'inside',
+                xAxisIndex: 0,
+                yAxisIndex: 0
+            }
+        ],
+        series: [{
+            type: 'scatter',
+            data: scatterData,
+            large: true,
+            largeThreshold: 2000,
+            symbolSize: 3,
+            itemStyle: {
+                color: 'rgba(59, 130, 246, 0.5)'
+            }
+        }]
+    };
 
-//     chart3.setOption(option, true);
-// }
+    chart3.setOption(option, true);
+}
 
 /**
  * 键盘导航控制（重构版）：
