@@ -1,9 +1,9 @@
-// 全局变量
+// 全局变量 (保持不变)
 let datasets = {};
 let chart1, chart2, chart3;
 let currentData = null;
 
-// DOM 元素
+// DOM 元素 (保持不变)
 const datasetSelect = document.getElementById('datasetSelect');
 const sampleSelect = document.getElementById('sampleSelect');
 const loadingSpinner = document.getElementById('loadingSpinner');
@@ -12,14 +12,14 @@ const sampleInfo = document.getElementById('sampleInfo');
 const dataLengthSpan = document.getElementById('dataLength');
 const anomalyCountSpan = document.getElementById('anomalyCount');
 
-// 初始化
+// 初始化 (保持不变)
 document.addEventListener('DOMContentLoaded', async () => {
     initCharts();
     await loadDatasets();
     setupEventListeners();
 });
 
-// 初始化图表
+// 初始化图表 (保持不变)
 function initCharts() {
     chart1 = echarts.init(document.getElementById('chart1'));
     chart2 = echarts.init(document.getElementById('chart2'));
@@ -36,7 +36,7 @@ function initCharts() {
     showEmptyCharts();
 }
 
-// 显示空状态图表
+// 显示空状态图表 (保持不变)
 function showEmptyCharts() {
     const emptyOption = {
         title: {
@@ -54,7 +54,7 @@ function showEmptyCharts() {
     chart3.setOption(emptyOption);
 }
 
-// 加载数据集列表
+// 加载数据集列表 (保持不变)
 async function loadDatasets() {
     try {
         const response = await fetch('/api/datasets');
@@ -73,13 +73,13 @@ async function loadDatasets() {
     }
 }
 
-// 设置事件监听器
+// 设置事件监听器 (保持不变)
 function setupEventListeners() {
     datasetSelect.addEventListener('change', onDatasetChange);
     sampleSelect.addEventListener('change', onSampleChange);
 }
 
-// 数据集选择变化
+// 数据集选择变化 (保持不变)
 function onDatasetChange() {
     const dataset = datasetSelect.value;
 
@@ -105,7 +105,7 @@ function onDatasetChange() {
     sampleSelect.disabled = false;
 }
 
-// 样本选择变化
+// 样本选择变化 (保持不变)
 async function onSampleChange() {
     const dataset = datasetSelect.value;
     const sampleId = sampleSelect.value;
@@ -135,7 +135,7 @@ async function onSampleChange() {
     }
 }
 
-// 更新样本信息
+// 更新样本信息 (保持不变)
 function updateSampleInfo() {
     if (!currentData) return;
 
@@ -144,23 +144,23 @@ function updateSampleInfo() {
     sampleInfo.classList.remove('hidden');
 }
 
-// 显示/隐藏加载状态
+// 显示/隐藏加载状态 (保持不变)
 function showLoading(show) {
     loadingSpinner.classList.toggle('hidden', !show);
 }
 
-// 显示错误信息
+// 显示错误信息 (保持不变)
 function showError(message) {
     errorMessage.textContent = message;
     errorMessage.classList.remove('hidden');
 }
 
-// 隐藏错误信息
+// 隐藏错误信息 (保持不变)
 function hideError() {
     errorMessage.classList.add('hidden');
 }
 
-// 显示 Toast 通知
+// 显示 Toast 通知 (保持不变)
 function showToast(message, type = 'info') {
     const container = document.getElementById('toastContainer');
     const toast = document.createElement('div');
@@ -178,7 +178,7 @@ function showToast(message, type = 'info') {
     }, 3000);
 }
 
-// 更新所有图表
+// 更新所有图表 (保持不变)
 function updateCharts() {
     if (!currentData) return;
 
@@ -187,158 +187,125 @@ function updateCharts() {
     updateChart3();
 }
 
-// 图一：时序与异常分数对齐图
+
+/**
+ * 【重构核心】：图一，时序与异常分数对齐图，采用 Multi-Grid 垂直联动的出版级布局
+ * 用于生成目标图片 image_3.png 的效果
+ */
 function updateChart1() {
     const { value, label, anomaly_score } = currentData;
     const xData = Array.from({ length: value.length }, (_, i) => i);
 
-    // 计算 markArea（连续区间）和 markPoint（单个异常点）
-    const markAreas = [];
-    const markPoints = [];
+    // 【第一步：精准分类提取“连续区间”和“单个异常点”】
+    const markAreasData = []; // 存放连续区间（长度 >= 2）
+    const markLinesData = []; // 存放单个异常点（长度 == 1）
     let start = -1;
 
     for (let i = 0; i < label.length; i++) {
         if (label[i] === 1 && start === -1) {
-            start = i;
+            start = i; // 记录异常的起点
         } else if (label[i] === 0 && start !== -1) {
-            const length = i - start;
-            if (length === 1) {
-                // 单个异常点，使用 markPoint
-                markPoints.push({
-                    coord: [start, value[start]],
-                    name: '异常点',
-                    itemStyle: { color: '#ef4444' }
-                });
+            const end = i - 1; // 异常结束
+            if (start === end) {
+                // 如果起点和终点是同一个索引，说明是【单个异常点】
+                markLinesData.push({ xAxis: start });
             } else {
-                // 连续区间，使用 markArea
-                markAreas.push([{ xAxis: start }, { xAxis: i - 1 }]);
+                // 如果起点和终点不同，说明是【连续异常区间】
+                markAreasData.push([{ xAxis: start }, { xAxis: end }]);
             }
-            start = -1;
+            start = -1; // 重置起点
         }
     }
-    // 处理末尾的异常区间
+    // 处理序列末尾正好是异常的情况
     if (start !== -1) {
-        const length = label.length - start;
-        if (length === 1) {
-            markPoints.push({
-                coord: [start, value[start]],
-                name: '异常点',
-                itemStyle: { color: '#ef4444' }
-            });
+        const end = label.length - 1;
+        if (start === end) {
+            markLinesData.push({ xAxis: start });
         } else {
-            markAreas.push([{ xAxis: start }, { xAxis: label.length - 1 }]);
+            markAreasData.push([{ xAxis: start }, { xAxis: end }]);
         }
     }
 
+    // 【第二步：分别定义上半图（原始信号）和下半图（异常分数）的红底与红线】
+    
+    // 1. 上半部分：为了不遮挡蓝色的原始信号线，颜色用浅红色，线也用浅色
+    const topMarkArea = { silent: true, itemStyle: { color: 'rgba(255, 0, 0, 0.3)' }, data: markAreasData };
+    const topMarkLine = {
+        silent: true,
+        symbol: 'none', // 不显示两端的箭头或圆点
+        lineStyle: { color: 'rgba(255, 0, 0, 0.5)', type: 'solid', width: 2 }, // 强制2像素宽的实线，确保可见
+        data: markLinesData
+    };
+
+    // 2. 下半部分：为了形成强烈视觉冲击，颜色用深红色，线也用深色
+    const bottomMarkArea = { silent: true, itemStyle: { color: 'rgba(255, 0, 0, 0.9)' }, data: markAreasData };
+    const bottomMarkLine = {
+        silent: true,
+        symbol: 'none',
+        lineStyle: { color: 'rgba(255, 0, 0, 0.9)', type: 'solid', width: 2 }, // 深色2像素粗线
+        data: markLinesData
+    };
+
+    // 【第三步：构建 ECharts 渲染配置】
     const option = {
         animation: false,
-        tooltip: {
-            trigger: 'axis',
-            axisPointer: { type: 'cross' }
-        },
-        legend: {
-            data: ['原始信号', '异常分数'],
-            top: 10
-        },
-        grid: {
-            left: 60,
-            right: 60,
-            top: 50,
-            bottom: 80
-        },
-        xAxis: {
-            type: 'category',
-            data: xData,
-            name: '时间步',
-            nameLocation: 'middle',
-            nameGap: 30
-        },
+        tooltip: { trigger: 'axis', axisPointer: { type: 'cross' } },
+        legend: { data: ['原始信号', '异常分数'], top: 10 },
+        // 上下分栏布局
+        grid: [
+            { left: 70, right: 30, top: 50, height: 140 },
+            { left: 70, right: 30, top: 220, height: 80 }
+        ],
+        xAxis: [
+            { type: 'category', data: xData, gridIndex: 0, axisLabel: { show: false }, axisTick: { show: false } },
+            { type: 'category', data: xData, gridIndex: 1, name: '时间步', nameLocation: 'middle', nameGap: 30 }
+        ],
         yAxis: [
-            {
-                type: 'value',
-                name: '原始信号',
-                position: 'left',
-                nameLocation: 'middle',
-                nameGap: 40
-            },
-            {
-                type: 'value',
-                name: '异常分数',
-                position: 'right',
-                nameLocation: 'middle',
-                nameGap: 40,
-                min: 0,
-                max: 1
-            }
+            { type: 'value', name: '原始信号', nameLocation: 'middle', nameGap: 50, gridIndex: 0, axisLine: { show: true, lineStyle: { color: '#0000ff' } }, splitLine: { show: true, lineStyle: { type: 'dashed' } } },
+            { type: 'value', name: '异常分数', nameLocation: 'middle', nameGap: 50, min: 0, max: 1, gridIndex: 1, axisLine: { show: true, lineStyle: { color: '#008000' } }, splitLine: { show: false } }
         ],
         dataZoom: [
-            {
-                type: 'slider',
-                xAxisIndex: 0,
-                start: 0,
-                end: 100,
-                height: 20,
-                bottom: 10
-            },
-            {
-                type: 'inside',
-                xAxisIndex: 0,
-                zoomOnMouseWheel: true,
-                moveOnMouseMove: true
-            }
+            { type: 'slider', xAxisIndex: [0, 1], start: 0, end: 100, height: 20, bottom: 8 },
+            { type: 'inside', xAxisIndex: [0, 1], zoomOnMouseWheel: true, moveOnMouseMove: true }
         ],
         series: [
             {
                 name: '原始信号',
                 type: 'line',
+                xAxisIndex: 0,
                 yAxisIndex: 0,
                 data: value,
                 large: true,
                 progressive: 3000,
-                lineStyle: { width: 1 },
-                itemStyle: { color: '#3b82f6' }
+                symbol: 'none',
+                lineStyle: { width: 1.5 },
+                itemStyle: { color: '#0000ff' }, // 蓝色
+                // 【核心挂载】：同时挂载面积（处理区间）和线（处理单点）
+                markArea: markAreasData.length > 0 ? topMarkArea : undefined,
+                markLine: markLinesData.length > 0 ? topMarkLine : undefined
             },
             {
                 name: '异常分数',
                 type: 'line',
+                xAxisIndex: 1,
                 yAxisIndex: 1,
                 data: anomaly_score,
                 large: true,
                 progressive: 3000,
-                lineStyle: { width: 1 },
-                areaStyle: { opacity: 0.3 },
-                itemStyle: { color: '#f59e0b' }
+                symbol: 'none',
+                lineStyle: { width: 1.5 },
+                itemStyle: { color: '#008000' }, // 绿色
+                // 【核心挂载】：同时挂载面积（处理区间）和线（处理单点）
+                markArea: markAreasData.length > 0 ? bottomMarkArea : undefined,
+                markLine: markLinesData.length > 0 ? bottomMarkLine : undefined
             }
         ]
     };
 
-    // 添加 markArea（连续异常区间）
-    if (markAreas.length > 0) {
-        option.series[0].markArea = {
-            silent: true,
-            itemStyle: {
-                color: 'rgba(239, 68, 68, 0.25)'
-            },
-            data: markAreas
-        };
-    }
-
-    // 添加 markPoint（单个异常点）
-    if (markPoints.length > 0) {
-        option.series[0].markPoint = {
-            symbol: 'circle',
-            symbolSize: 8,
-            itemStyle: {
-                color: '#ef4444'
-            },
-            data: markPoints
-        };
-    }
-
     chart1.setOption(option, true);
 }
 
-// 图二：区分度分析直方图
+// 图二：区分度分析直方图 (保持不变)
 function updateChart2() {
     const { label, anomaly_score } = currentData;
 
@@ -441,7 +408,7 @@ function updateChart2() {
     chart2.setOption(option, true);
 }
 
-// 图三：关联性散点图
+// 图三：关联性散点图 (保持不变)
 function updateChart3() {
     const { value, anomaly_score } = currentData;
 
