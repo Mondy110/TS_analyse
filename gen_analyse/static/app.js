@@ -92,7 +92,7 @@ async function loadAnomalyTypes() {
         hierarchicalTypes = data.hierarchical_types;
 
         // 清空一级下拉框并添加选项
-        categorySelect.innerHTML = '<option value="">全部</option>';
+        categorySelect.innerHTML = '';
 
         const categories = Object.keys(hierarchicalTypes);
         categories.forEach(function(category) {
@@ -102,8 +102,14 @@ async function loadAnomalyTypes() {
             categorySelect.appendChild(option);
         });
 
-        // 初始化二级下拉框为空
-        anomalyTypeSelect.innerHTML = '<option value="">请先选择一级分类</option>';
+        // 自动选择第一个一级分类并触发联动
+        if (categories.length > 0) {
+            categorySelect.value = categories[0];
+            handleCategoryChange(); // 自动触发联动，填充二级分类
+        } else {
+            // 无分类数据时初始化二级下拉框为空
+            anomalyTypeSelect.innerHTML = '<option value="">请先选择一级分类</option>';
+        }
 
         statusText.textContent = `已加载 ${categories.length} 个一级分类`;
 
@@ -285,19 +291,19 @@ function renderCharts(samples) {
 }
 
 /**
- * 渲染单个样本的图表（左文右图布局）
+ * 渲染单个样本的图表（左文右图布局 - 完美修复版）
  *
  * @param {Object} sample - 单个样本数据
  * @param {number} index - 样本序号
  */
 function renderSingleChart(sample, index) {
-    // 主容器：左文右图 Flexbox 布局
+    // 【核心修复 1】：将外层容器彻底改为稳固的 Grid 布局（4列），彻底防止 Flex 状态下尺寸计算错乱
     const chartWrapper = document.createElement('div');
-    chartWrapper.className = 'w-full flex flex-row gap-6 bg-white rounded-lg shadow-lg p-6 mb-8';
+    chartWrapper.className = 'w-full grid grid-cols-4 gap-6 bg-white rounded-lg shadow-lg p-6 mb-8 items-start';
 
-    // ==================== 左侧信息面板 (w-1/4) ====================
+    // ==================== 左侧信息面板 (占 4 列中的 1 列) ====================
     const leftPanel = document.createElement('div');
-    leftPanel.className = 'w-1/4 flex flex-col overflow-y-auto max-h-[720px]';
+    leftPanel.className = 'col-span-1 flex flex-col overflow-y-auto max-h-[720px] pr-2';
 
     // 安全提取 full_attribute_pool
     const fullAttr = sample?.attribute?.full_attribute_pool || null;
@@ -370,21 +376,23 @@ function renderSingleChart(sample, index) {
 
     chartWrapper.appendChild(leftPanel);
 
-    // ==================== 右侧图表区域 (w-3/4) ====================
+    // ==================== 右侧图表区域 (占 4 列中的 3 列) ====================
+    // 【核心修复 2】：使用 col-span-3 和 min-w-0 强制约束容器宽度，不给子元素任意扩充的机会
     const rightPanel = document.createElement('div');
-    rightPanel.className = 'w-3/4 flex flex-col';
+    rightPanel.className = 'col-span-3 flex flex-col min-w-0 w-full';
 
     const chartContainer = document.createElement('div');
     chartContainer.id = `chart-${index}`;
-    chartContainer.style.width = '100%';
+    chartContainer.className = 'w-full';
     chartContainer.style.height = '720px';
 
     rightPanel.appendChild(chartContainer);
     chartWrapper.appendChild(rightPanel);
 
+    // 将大容器挂载到页面上
     chartsContainer.appendChild(chartWrapper);
 
-    // ==================== ECharts 配置（保持原有三图联动逻辑） ====================
+    // ==================== ECharts 配置 ====================
     const chartDom = document.getElementById(`chart-${index}`);
     const myChart = echarts.init(chartDom);
 
@@ -398,33 +406,12 @@ function renderSingleChart(sample, index) {
 
     const option = {
         title: [
-            {
-                text: 'Normal Time Series (纯净序列)',
-                left: 'center',
-                top: 10,
-                textStyle: { fontSize: 14, color: '#3b82f6' }
-            },
-            {
-                text: 'Time Series (含异常序列)',
-                left: 'center',
-                top: '34%',
-                textStyle: { fontSize: 14, color: '#10b981' }
-            },
-            {
-                text: 'Difference Series (残差序列: 异常 - 纯净)',
-                left: 'center',
-                top: '66%',
-                textStyle: { fontSize: 14, color: '#ec4899' }
-            }
+            { text: 'Normal Time Series (纯净序列)', left: 'center', top: 10, textStyle: { fontSize: 14, color: '#3b82f6' } },
+            { text: 'Time Series (含异常序列)', left: 'center', top: '34%', textStyle: { fontSize: 14, color: '#10b981' } },
+            { text: 'Difference Series (残差序列: 异常 - 纯净)', left: 'center', top: '66%', textStyle: { fontSize: 14, color: '#ec4899' } }
         ],
-        tooltip: {
-            trigger: 'axis',
-            axisPointer: { type: 'cross' }
-        },
-        legend: {
-            data: ['Normal', 'Anomaly', 'Difference'],
-            top: 30
-        },
+        tooltip: { trigger: 'axis', axisPointer: { type: 'cross' } },
+        legend: { data: ['Normal', 'Anomaly', 'Difference'], top: 30 },
         grid: [
             { left: '10%', right: '5%', top: '8%', height: '22%' },
             { left: '10%', right: '5%', top: '40%', height: '22%' },
@@ -441,66 +428,23 @@ function renderSingleChart(sample, index) {
             { type: 'value', gridIndex: 2 }
         ],
         series: [
-            {
-                name: 'Normal',
-                type: 'line',
-                xAxisIndex: 0,
-                yAxisIndex: 0,
-                data: sample.normal_time_series,
-                lineStyle: { color: '#3b82f6', width: 1 },
-                showSymbol: false
-            },
-            {
-                name: 'Anomaly',
-                type: 'line',
-                xAxisIndex: 1,
-                yAxisIndex: 1,
-                data: sample.time_series,
-                lineStyle: { color: '#10b981', width: 1 },
-                showSymbol: false,
-                markArea: {
-                    data: markAreaData,
-                    itemStyle: { color: 'rgba(239, 68, 68, 0.3)' }
-                }
-            },
-            {
-                name: 'Difference',
-                type: 'line',
-                xAxisIndex: 2,
-                yAxisIndex: 2,
-                data: differenceSeries,
-                lineStyle: { color: '#ec4899', width: 1.2 },
-                showSymbol: false,
-                markArea: {
-                    data: markAreaData,
-                    itemStyle: { color: 'rgba(239, 68, 68, 0.3)' }
-                },
-                markLine: {
-                    silent: true,
-                    symbol: 'none',
-                    label: { show: false },
-                    lineStyle: { type: 'dashed', color: '#9ca3af', width: 1 },
-                    data: [{ yAxis: 0 }]
-                }
-            }
+            { name: 'Normal', type: 'line', xAxisIndex: 0, yAxisIndex: 0, data: sample.normal_time_series, lineStyle: { color: '#3b82f6', width: 1 }, showSymbol: false },
+            { name: 'Anomaly', type: 'line', xAxisIndex: 1, yAxisIndex: 1, data: sample.time_series, lineStyle: { color: '#10b981', width: 1 }, showSymbol: false, markArea: { data: markAreaData, itemStyle: { color: 'rgba(239, 68, 68, 0.3)' } } },
+            { name: 'Difference', type: 'line', xAxisIndex: 2, yAxisIndex: 2, data: differenceSeries, lineStyle: { color: '#ec4899', width: 1.2 }, showSymbol: false, markArea: { data: markAreaData, itemStyle: { color: 'rgba(239, 68, 68, 0.3)' } }, markLine: { silent: true, symbol: 'none', label: { show: false }, lineStyle: { type: 'dashed', color: '#9ca3af', width: 1 }, data: [{ yAxis: 0 }] } }
         ],
         dataZoom: [
-            {
-                type: 'slider',
-                xAxisIndex: [0, 1, 2],
-                bottom: 15,
-                height: 18
-            },
-            {
-                type: 'inside',
-                xAxisIndex: [0, 1, 2],
-                zoomOnMouseWheel: true,
-                moveOnMouseMove: true
-            }
+            { type: 'slider', xAxisIndex: [0, 1, 2], bottom: 15, height: 18 },
+            { type: 'inside', xAxisIndex: [0, 1, 2], zoomOnMouseWheel: true, moveOnMouseMove: true }
         ]
     };
 
     myChart.setOption(option);
+
+    // 【核心修复 3】：建立一个 50ms 的延时微任务。等待浏览器将 Grid 容器完全渲染完毕、宽度稳定后，
+    // 强制触发一次 ECharts 的 resize()，让图表百分之百完美收合在白卡内。
+    setTimeout(() => {
+        myChart.resize();
+    }, 50);
 }
 
 // ============================================================================
