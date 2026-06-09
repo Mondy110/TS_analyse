@@ -119,6 +119,39 @@ async function loadAnomalyTypes() {
 // ============================================================================
 
 /**
+ * 处理一级分类下拉框变化事件
+ *
+ * 根据选中的一级分类更新二级下拉框选项
+ */
+function handleCategoryChange() {
+    const selectedCategory = categorySelect.value;
+
+    // 清空二级下拉框
+    anomalyTypeSelect.innerHTML = '';
+
+    if (!selectedCategory) {
+        // 未选择一级分类
+        anomalyTypeSelect.innerHTML = '<option value="">请先选择一级分类</option>';
+        return;
+    }
+
+    // 添加"全部"选项（用于大类筛选）
+    const allOption = document.createElement('option');
+    allOption.value = selectedCategory;
+    allOption.textContent = '全部';
+    anomalyTypeSelect.appendChild(allOption);
+
+    // 添加该大类下的所有子类
+    const subTypes = hierarchicalTypes[selectedCategory] || [];
+    subTypes.forEach(function(type) {
+        const option = document.createElement('option');
+        option.value = type;
+        option.textContent = type;
+        anomalyTypeSelect.appendChild(option);
+    });
+}
+
+/**
  * 处理"加载数据"按钮点击事件
  *
  * 1. 重置页码为第一页
