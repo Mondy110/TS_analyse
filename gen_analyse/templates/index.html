@@ -77,7 +77,23 @@
         </div>
 
         <!-- ================================
-             第四部分：图表容器
+             第四部分：分页控制栏
+             ================================ -->
+        <div id="pagination-container"
+             class="bg-white rounded-lg shadow-md p-4 mb-6 flex items-center justify-center gap-4 hidden">
+            <button id="prev-btn"
+                    class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded transition disabled:opacity-50 disabled:cursor-not-allowed">
+                上一页
+            </button>
+            <span id="page-info" class="text-gray-700 font-medium">第 1 / 1 页</span>
+            <button id="next-btn"
+                    class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded transition disabled:opacity-50 disabled:cursor-not-allowed">
+                下一页
+            </button>
+        </div>
+
+        <!-- ================================
+             第五部分：图表容器
              ================================ -->
         <!-- 图表将动态添加到此容器中 -->
         <div id="charts-container"
@@ -91,7 +107,7 @@
     </div>
 
     <!-- ================================
-         第五部分：引入 JavaScript
+         第六部分：引入 JavaScript
          ================================ -->
     <script src="/static/app.js"></script>
 </body>

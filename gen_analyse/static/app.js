@@ -15,13 +15,21 @@
 // 第一部分：全局变量和 DOM 元素引用
 // ============================================================================
 
+// 分页状态变量
+let currentPage = 1;
+let totalPages = 1;
+
 // DOM 元素引用（页面加载完成后初始化）
-let anomalyTypeSelect;   // 异常类型下拉框
-let limitSelect;         // 数量选择下拉框
-let loadBtn;             // 加载按钮
-let statusText;          // 状态提示文本
-let chartsContainer;     // 图表容器
-let placeholder;         // 占位提示元素
+let anomalyTypeSelect;      // 异常类型下拉框
+let limitSelect;            // 数量选择下拉框
+let loadBtn;                // 加载按钮
+let statusText;             // 状态提示文本
+let chartsContainer;        // 图表容器
+let placeholder;            // 占位提示元素
+let paginationContainer;    // 分页容器
+let prevBtn;                // 上一页按钮
+let nextBtn;                // 下一页按钮
+let pageInfo;               // 页码信息显示
 
 // ============================================================================
 // 第二部分：页面初始化
@@ -41,9 +49,15 @@ document.addEventListener('DOMContentLoaded', function() {
     statusText = document.getElementById('status-text');
     chartsContainer = document.getElementById('charts-container');
     placeholder = document.getElementById('placeholder');
+    paginationContainer = document.getElementById('pagination-container');
+    prevBtn = document.getElementById('prev-btn');
+    nextBtn = document.getElementById('next-btn');
+    pageInfo = document.getElementById('page-info');
 
     // 绑定事件监听器
     loadBtn.addEventListener('click', handleLoadData);
+    prevBtn.addEventListener('click', handlePrevPage);
+    nextBtn.addEventListener('click', handleNextPage);
 
     // 加载异常类型列表
     loadAnomalyTypes();
@@ -103,11 +117,45 @@ async function loadAnomalyTypes() {
 /**
  * 处理"加载数据"按钮点击事件
  *
- * 1. 获取选中的异常类型和数量
- * 2. 发送请求到后端
- * 3. 渲染图表
+ * 1. 重置页码为第一页
+ * 2. 获取选中的异常类型和数量
+ * 3. 发送请求到后端
+ * 4. 渲染图表
  */
 async function handleLoadData() {
+    // 重置页码
+    currentPage = 1;
+    await fetchData();
+}
+
+/**
+ * 处理上一页按钮点击事件
+ */
+async function handlePrevPage() {
+    if (currentPage > 1) {
+        currentPage--;
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+        await fetchData();
+    }
+}
+
+/**
+ * 处理下一页按钮点击事件
+ */
+async function handleNextPage() {
+    if (currentPage < totalPages) {
+        currentPage++;
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+        await fetchData();
+    }
+}
+
+/**
+ * 核心数据请求函数
+ *
+ * 发送请求到后端并渲染图表
+ */
+async function fetchData() {
     // 获取选中的值
     const anomalyType = anomalyTypeSelect.value;
     const limit = parseInt(limitSelect.value);
@@ -127,7 +175,8 @@ async function handleLoadData() {
         // URL 参数使用 URLSearchParams 构建
         const params = new URLSearchParams({
             anomaly_type: anomalyType,
-            limit: limit.toString()
+            limit: limit.toString(),
+            page: currentPage.toString()
         });
 
         const response = await fetch(`/api/samples?${params}`);
@@ -137,6 +186,23 @@ async function handleLoadData() {
         }
 
         const data = await response.json();
+
+        // 计算总页数
+        totalPages = Math.ceil(data.total / limit) || 1;
+
+        // 更新分页信息显示
+        pageInfo.textContent = `第 ${currentPage} / ${totalPages} 页`;
+
+        // 控制分页按钮状态
+        prevBtn.disabled = currentPage === 1;
+        nextBtn.disabled = currentPage === totalPages;
+
+        // 控制分页容器显示/隐藏
+        if (data.total > 0) {
+            paginationContainer.classList.remove('hidden');
+        } else {
+            paginationContainer.classList.add('hidden');
+        }
 
         // 渲染图表
         renderCharts(data.samples);
@@ -182,22 +248,22 @@ function renderCharts(samples) {
 }
 
 /**
- * 渲染单个样本的图表
+ * 渲染单个样本的图表（已升级为三图联动：纯净序列、含异常序列、残差序列）
  *
  * @param {Object} sample - 单个样本数据
  * @param {number} index - 样本序号
  */
 function renderSingleChart(sample, index) {
-    // 创建图表容器
+    // 【修改点 1】：增大容器和图表的高度，给第三个图留出足够的空间
     const chartWrapper = document.createElement('div');
-    chartWrapper.className = 'w-full h-[600px] bg-white rounded-lg shadow p-4';
+    chartWrapper.className = 'w-full h-[780px] bg-white rounded-lg shadow p-4';
     chartWrapper.innerHTML = `
         <div class="text-sm text-gray-600 mb-2">
             样本 #${index} |
             序列长度: ${sample.time_series.length} |
             异常点数: ${sample.labels.filter(l => l === 1).length}
         </div>
-        <div id="chart-${index}" style="width: 100%; height: 550px;"></div>
+        <div id="chart-${index}" style="width: 100%; height: 720px;"></div>
     `;
     chartsContainer.appendChild(chartWrapper);
 
@@ -211,15 +277,18 @@ function renderSingleChart(sample, index) {
     // 计算异常区间
     const anomalyRegions = computeAnomalyRegions(sample.labels);
 
-    // 构建 markArea 数据（异常区间）
+    // 构建 markArea 数据（异常区间高亮区域）
     const markAreaData = anomalyRegions.map(region => [
         { coord: [region.start, 'min'] },
         { coord: [region.end, 'max'] }
     ]);
 
+    // 【修改点 2】：计算残差序列（异常序列 减去 纯净序列）
+    const differenceSeries = sample.time_series.map((val, i) => val - sample.normal_time_series[i]);
+
     // ECharts 配置项
     const option = {
-        // 标题配置
+        // 标题配置（升级为三个标题）
         title: [
             {
                 text: 'Normal Time Series (纯净序列)',
@@ -230,8 +299,14 @@ function renderSingleChart(sample, index) {
             {
                 text: 'Time Series (含异常序列)',
                 left: 'center',
-                top: '52%',
+                top: '34%', // 调整垂直位置
                 textStyle: { fontSize: 14, color: '#10b981' }
+            },
+            {
+                text: 'Difference Series (残差序列: 异常 - 纯净)',
+                left: 'center',
+                top: '66%', // 第三幅图的标题
+                textStyle: { fontSize: 14, color: '#ec4899' } // 使用粉紫色区分
             }
         ],
 
@@ -243,29 +318,36 @@ function renderSingleChart(sample, index) {
 
         // 图例配置
         legend: {
-            data: ['Normal', 'Anomaly'],
+            data: ['Normal', 'Anomaly', 'Difference'],
             top: 30
         },
 
-        // 双网格布局
+        // 【修改点 3】：升级为三网格布局，平分垂直空间
         grid: [
             // 上方网格：纯净序列
             {
                 left: '10%',
                 right: '5%',
-                top: '15%',
-                height: '30%'
+                top: '8%',
+                height: '22%'
             },
-            // 下方网格：含异常序列
+            // 中间网格：含异常序列
             {
                 left: '10%',
                 right: '5%',
-                top: '60%',
-                height: '30%'
+                top: '40%',
+                height: '22%'
+            },
+            // 下方网格：残差序列
+            {
+                left: '10%',
+                right: '5%',
+                top: '72%',
+                height: '22%'
             }
         ],
 
-        // X 轴配置
+        // X 轴配置（关联三个网格，只有最下方的图显示刻度标签）
         xAxis: [
             {
                 type: 'category',
@@ -277,19 +359,26 @@ function renderSingleChart(sample, index) {
                 type: 'category',
                 gridIndex: 1,
                 data: indices,
-                axisLabel: { show: true }
+                axisLabel: { show: false }
+            },
+            {
+                type: 'category',
+                gridIndex: 2,
+                data: indices,
+                axisLabel: { show: true } // 仅最后一幅图显示时间步刻度
             }
         ],
 
         // Y 轴配置
         yAxis: [
             { type: 'value', gridIndex: 0 },
-            { type: 'value', gridIndex: 1 }
+            { type: 'value', gridIndex: 1 },
+            { type: 'value', gridIndex: 2 }
         ],
 
         // 数据系列
         series: [
-            // 上方：纯净序列
+            // 1. 上方：纯净序列
             {
                 name: 'Normal',
                 type: 'line',
@@ -299,7 +388,7 @@ function renderSingleChart(sample, index) {
                 lineStyle: { color: '#3b82f6', width: 1 },
                 showSymbol: false
             },
-            // 下方：含异常序列
+            // 2. 中间：含异常序列（包含红色异常区域高亮）
             {
                 name: 'Anomaly',
                 type: 'line',
@@ -308,29 +397,53 @@ function renderSingleChart(sample, index) {
                 data: sample.time_series,
                 lineStyle: { color: '#10b981', width: 1 },
                 showSymbol: false,
-                // 异常区间标记（半透明红色区域）
                 markArea: {
                     data: markAreaData,
                     itemStyle: {
                         color: 'rgba(239, 68, 68, 0.3)'
                     }
                 }
+            },
+            // 3. 下方：残差序列（同样包含红色异常区域高亮）
+            {
+                name: 'Difference',
+                type: 'line',
+                xAxisIndex: 2,
+                yAxisIndex: 2,
+                data: differenceSeries,
+                lineStyle: { color: '#ec4899', width: 1.2 }, // 稍粗一点方便观察
+                showSymbol: false,
+                // 同步标记异常区域（半透明红色区域）
+                markArea: {
+                    data: markAreaData,
+                    itemStyle: {
+                        color: 'rgba(239, 68, 68, 0.3)'
+                    }
+                },
+                // 额外添加一条 Y=0 的虚线作为基准线，更直观看出正负偏差
+                markLine: {
+                    silent: true,
+                    symbol: 'none',
+                    label: { show: false },
+                    lineStyle: { type: 'dashed', color: '#9ca3af', width: 1 },
+                    data: [{ yAxis: 0 }]
+                }
             }
         ],
 
-        // 缩放组件
+        // 【修改点 4】：将 xAxisIndex 扩展到 [0, 1, 2]，实现三图完美同步缩放和平移
         dataZoom: [
             {
                 type: 'slider',
-                xAxisIndex: [0, 1],
-                bottom: 20,
-                height: 20
+                xAxisIndex: [0, 1, 2], // 联动三个网格的 X 轴
+                bottom: 15,
+                height: 18
             },
             {
-                type: 'inside',         // 启用内置坐标轴缩放
-                xAxisIndex: [0, 1],     // 同时联动上下两个网格的 X 轴
-                zoomOnMouseWheel: true, // 允许使用鼠标滚轮进行放大缩小
-                moveOnMouseMove: true   // 允许鼠标长按拖拽波形进行平移
+                type: 'inside',
+                xAxisIndex: [0, 1, 2], // 滚轮同时缩放三个网格
+                zoomOnMouseWheel: true,
+                moveOnMouseMove: true
             }
         ]
     };

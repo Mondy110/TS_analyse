@@ -279,7 +279,8 @@ async def get_anomaly_types():
 @app.get("/api/samples")
 async def get_samples(
     anomaly_type: str = Query(..., description="异常类型"),
-    limit: int = Query(10, ge=1, le=100, description="返回样本数量")
+    limit: int = Query(10, ge=1, le=100, description="返回样本数量"),
+    page: int = Query(1, ge=1, description="当前页码")
 ):
     """
     按异常类型筛选样本
@@ -287,10 +288,12 @@ async def get_samples(
     参数：
     - anomaly_type: 异常类型（如 'outlier', 'upward spike' 等）
     - limit: 返回的样本数量，默认 10，范围 1-100
+    - page: 当前页码，默认 1，最小值 1
 
     返回：
     - samples: 符合条件的样本列表
     - total: 符合条件的样本总数
+    - page: 当前页码
     """
     data = get_data()
 
@@ -306,11 +309,16 @@ async def get_samples(
             # 转换为 JSON 可序列化格式
             matched_samples.append(convert_sample_to_json(sample))
 
-    # 返回指定数量的样本
+    # 计算分页索引
+    start_idx = (page - 1) * limit
+    end_idx = start_idx + limit
+
+    # 返回指定页的样本
     return {
-        "samples": matched_samples[:limit],
+        "samples": matched_samples[start_idx:end_idx],
         "total": len(matched_samples),
-        "returned": min(limit, len(matched_samples))
+        "returned": min(limit, max(0, len(matched_samples) - start_idx)),
+        "page": page
     }
 
 
