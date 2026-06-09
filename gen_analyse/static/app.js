@@ -19,17 +19,21 @@
 let currentPage = 1;
 let totalPages = 1;
 
+// 层级分类数据缓存
+let hierarchicalTypes = {};
+
 // DOM 元素引用（页面加载完成后初始化）
-let anomalyTypeSelect;      // 异常类型下拉框
-let limitSelect;            // 数量选择下拉框
-let loadBtn;                // 加载按钮
-let statusText;             // 状态提示文本
-let chartsContainer;        // 图表容器
-let placeholder;            // 占位提示元素
-let paginationContainer;    // 分页容器
-let prevBtn;                // 上一页按钮
-let nextBtn;                // 下一页按钮
-let pageInfo;               // 页码信息显示
+let categorySelect;          // 一级分类下拉框
+let anomalyTypeSelect;       // 二级分类下拉框
+let limitSelect;             // 数量选择下拉框
+let loadBtn;                 // 加载按钮
+let statusText;              // 状态提示文本
+let chartsContainer;         // 图表容器
+let placeholder;             // 占位提示元素
+let paginationContainer;     // 分页容器
+let prevBtn;                 // 上一页按钮
+let nextBtn;                 // 下一页按钮
+let pageInfo;                // 页码信息显示
 
 // ============================================================================
 // 第二部分：页面初始化
@@ -43,6 +47,7 @@ let pageInfo;               // 页码信息显示
  */
 document.addEventListener('DOMContentLoaded', function() {
     // 获取 DOM 元素引用
+    categorySelect = document.getElementById('category-select');
     anomalyTypeSelect = document.getElementById('anomaly-type');
     limitSelect = document.getElementById('limit');
     loadBtn = document.getElementById('load-btn');
@@ -55,6 +60,7 @@ document.addEventListener('DOMContentLoaded', function() {
     pageInfo = document.getElementById('page-info');
 
     // 绑定事件监听器
+    categorySelect.addEventListener('change', handleCategoryChange);
     loadBtn.addEventListener('click', handleLoadData);
     prevBtn.addEventListener('click', handlePrevPage);
     nextBtn.addEventListener('click', handleNextPage);
