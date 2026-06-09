@@ -217,18 +217,6 @@ function renderSingleChart(sample, index) {
         { coord: [region.end, 'max'] }
     ]);
 
-    // 构建 markPoint 数据（异常点）
-    const markPointData = [];
-    sample.labels.forEach(function(label, i) {
-        if (label === 1) {
-            markPointData.push({
-                coord: [i, sample.time_series[i]],
-                itemStyle: { color: '#ef4444' },
-                symbolSize: 10
-            });
-        }
-    });
-
     // ECharts 配置项
     const option = {
         // 标题配置
@@ -326,12 +314,6 @@ function renderSingleChart(sample, index) {
                     itemStyle: {
                         color: 'rgba(239, 68, 68, 0.3)'
                     }
-                },
-                // 异常点标记（红色圆点）
-                markPoint: {
-                    data: markPointData,
-                    symbol: 'circle',
-                    symbolSize: 10
                 }
             }
         ],
@@ -343,6 +325,12 @@ function renderSingleChart(sample, index) {
                 xAxisIndex: [0, 1],
                 bottom: 20,
                 height: 20
+            },
+            {
+                type: 'inside',         // 启用内置坐标轴缩放
+                xAxisIndex: [0, 1],     // 同时联动上下两个网格的 X 轴
+                zoomOnMouseWheel: true, // 允许使用鼠标滚轮进行放大缩小
+                moveOnMouseMove: true   // 允许鼠标长按拖拽波形进行平移
             }
         ]
     };
