@@ -35,16 +35,27 @@
              ================================ -->
         <div class="bg-white rounded-lg shadow-md p-4 mb-6">
             <div class="flex flex-wrap items-center gap-4">
-                <!-- 异常类型下拉框 -->
+                <!-- 一级分类下拉框 -->
+                <div class="flex items-center gap-2">
+                    <label for="category-select" class="text-gray-700 font-medium">
+                        一级分类:
+                    </label>
+                    <select id="category-select"
+                            class="border border-gray-300 rounded px-4 py-2 min-w-[200px]
+                                   focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        <option value="">全部</option>
+                    </select>
+                </div>
+
+                <!-- 二级分类下拉框 -->
                 <div class="flex items-center gap-2">
                     <label for="anomaly-type" class="text-gray-700 font-medium">
-                        异常类型:
+                        二级分类:
                     </label>
                     <select id="anomaly-type"
                             class="border border-gray-300 rounded px-4 py-2 min-w-[200px]
                                    focus:outline-none focus:ring-2 focus:ring-blue-500">
-                        <!-- 选项将通过 JavaScript 动态加载 -->
-                        <option value="">正在加载...</option>
+                        <option value="">请先选择一级分类</option>
                     </select>
                 </div>
 
