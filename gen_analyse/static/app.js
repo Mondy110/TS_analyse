@@ -74,45 +74,43 @@ document.addEventListener('DOMContentLoaded', function() {
 // ============================================================================
 
 /**
- * 从后端加载异常类型列表
- *
- * 使用 Fetch API 发送 GET 请求到 /api/anomaly_types
- * 然后填充到下拉框中
+ * 从后端加载层级化异常类型列表
  */
 async function loadAnomalyTypes() {
     try {
         statusText.textContent = '正在加载异常类型...';
 
-        // Fetch API 发送请求
-        // await 等待请求完成
         const response = await fetch('/api/anomaly_types');
 
-        // 检查响应状态
         if (!response.ok) {
             throw new Error(`HTTP error! status: ${response.status}`);
         }
 
-        // 解析 JSON 响应
         const data = await response.json();
 
-        // 清空下拉框
-        anomalyTypeSelect.innerHTML = '';
+        // 缓存层级数据
+        hierarchicalTypes = data.hierarchical_types;
 
-        // 添加选项
-        // data.anomaly_types 是异常类型数组
-        data.anomaly_types.forEach(function(type) {
+        // 清空一级下拉框并添加选项
+        categorySelect.innerHTML = '<option value="">全部</option>';
+
+        const categories = Object.keys(hierarchicalTypes);
+        categories.forEach(function(category) {
             const option = document.createElement('option');
-            option.value = type;
-            option.textContent = type;
-            anomalyTypeSelect.appendChild(option);
+            option.value = category;
+            option.textContent = category;
+            categorySelect.appendChild(option);
         });
 
-        statusText.textContent = `已加载 ${data.anomaly_types.length} 种异常类型`;
+        // 初始化二级下拉框为空
+        anomalyTypeSelect.innerHTML = '<option value="">请先选择一级分类</option>';
+
+        statusText.textContent = `已加载 ${categories.length} 个一级分类`;
 
     } catch (error) {
         console.error('加载异常类型失败:', error);
         statusText.textContent = '加载异常类型失败，请刷新页面重试';
-        anomalyTypeSelect.innerHTML = '<option value="">加载失败</option>';
+        categorySelect.innerHTML = '<option value="">加载失败</option>';
     }
 }
 
