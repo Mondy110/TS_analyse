@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>时间序列异常检测可视化</title>
+
+    <!-- ================================
+         第一部分：引入外部资源
+         ================================ -->
+
+    <!-- TailwindCSS 框架（通过 CDN 引入）
+         提供原子化 CSS 类，快速构建美观界面 -->
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <!-- ECharts 图表库 v5.4.3（通过 CDN 引入）
+         用于绘制交互式时间序列图表 -->
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+</head>
+
+<body class="min-h-screen bg-gray-100 p-6">
+    <!-- ================================
+         第二部分：页面标题
+         ================================ -->
+    <div class="max-w-7xl mx-auto">
+        <h1 class="text-3xl font-bold text-gray-800 mb-2">
+            时间序列异常检测可视化
+        </h1>
+        <p class="text-gray-600 mb-6">
+            可视化展示 15 万条时间序列数据中的异常模式
+        </p>
+
+        <!-- ================================
+             第三部分：控制面板
+             ================================ -->
+        <div class="bg-white rounded-lg shadow-md p-4 mb-6">
+            <div class="flex flex-wrap items-center gap-4">
+                <!-- 异常类型下拉框 -->
+                <div class="flex items-center gap-2">
+                    <label for="anomaly-type" class="text-gray-700 font-medium">
+                        异常类型:
+                    </label>
+                    <select id="anomaly-type"
+                            class="border border-gray-300 rounded px-4 py-2 min-w-[200px]
+                                   focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        <!-- 选项将通过 JavaScript 动态加载 -->
+                        <option value="">正在加载...</option>
+                    </select>
+                </div>
+
+                <!-- 数量选择 -->
+                <div class="flex items-center gap-2">
+                    <label for="limit" class="text-gray-700 font-medium">
+                        数量:
+                    </label>
+                    <select id="limit"
+                            class="border border-gray-300 rounded px-4 py-2
+                                   focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        <option value="5">5</option>
+                        <option value="10" selected>10</option>
+                        <option value="20">20</option>
+                        <option value="50">50</option>
+                    </select>
+                </div>
+
+                <!-- 加载按钮 -->
+                <button id="load-btn"
+                        class="bg-blue-500 hover:bg-blue-600 text-white
+                               px-6 py-2 rounded transition-colors duration-200
+                               focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2">
+                    加载数据
+                </button>
+
+                <!-- 状态提示 -->
+                <span id="status-text" class="text-gray-500 text-sm"></span>
+            </div>
+        </div>
+
+        <!-- ================================
+             第四部分：图表容器
+             ================================ -->
+        <!-- 图表将动态添加到此容器中 -->
+        <div id="charts-container"
+             class="w-full flex flex-col gap-6">
+            <!-- 初始提示信息 -->
+            <div id="placeholder"
+                 class="bg-white rounded-lg shadow p-8 text-center text-gray-500">
+                <p class="text-lg">请选择异常类型并点击"加载数据"开始可视化</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- ================================
+         第五部分：引入 JavaScript
+         ================================ -->
+    <script src="/static/app.js"></script>
+</body>
+</html>

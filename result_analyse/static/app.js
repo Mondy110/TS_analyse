@@ -1,7 +1,8 @@
-// 全局变量 (保持不变)
+// 全局变量
 let datasets = {};
-let chart1, chart2, chart3;
-let currentData = null;
+let chart1_1, chart1_2, chart2, chart3;  // 四个图表实例
+let currentData1 = null;  // 目录1的数据
+let currentData2 = null;  // 目录2的数据
 
 // DOM 元素 (保持不变)
 const datasetSelect = document.getElementById('datasetSelect');
@@ -20,15 +21,17 @@ document.addEventListener('DOMContentLoaded', async () => {
     setupKeyboardNavigation();
 });
 
-// 初始化图表 (保持不变)
+// 初始化图表
 function initCharts() {
-    chart1 = echarts.init(document.getElementById('chart1'));
+    chart1_1 = echarts.init(document.getElementById('chart1_1'));
+    chart1_2 = echarts.init(document.getElementById('chart1_2'));
     chart2 = echarts.init(document.getElementById('chart2'));
     chart3 = echarts.init(document.getElementById('chart3'));
 
     // 窗口大小改变时重绘图表
     window.addEventListener('resize', () => {
-        chart1.resize();
+        chart1_1.resize();
+        chart1_2.resize();
         chart2.resize();
         chart3.resize();
     });
@@ -37,7 +40,7 @@ function initCharts() {
     showEmptyCharts();
 }
 
-// 显示空状态图表 (保持不变)
+// 显示空状态图表
 function showEmptyCharts() {
     const emptyOption = {
         title: {
@@ -50,7 +53,8 @@ function showEmptyCharts() {
             }
         }
     };
-    chart1.setOption(emptyOption);
+    chart1_1.setOption(emptyOption);
+    chart1_2.setOption(emptyOption);
     chart2.setOption(emptyOption);
     chart3.setOption(emptyOption);
 }
@@ -108,7 +112,7 @@ function onDatasetChange() {
     sampleSelect.disabled = false;
 }
 
-// 样本选择变化 (保持不变)
+// 样本选择变化
 async function onSampleChange() {
     const dataset = datasetSelect.value;
     const sampleId = sampleSelect.value;
@@ -123,11 +127,19 @@ async function onSampleChange() {
     hideError();
 
     try {
-        const response = await fetch(`/api/data/${dataset}/${sampleId}`);
-        if (!response.ok) {
-            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        // 并行加载两个目录的数据
+        const [response1, response2] = await Promise.all([
+            fetch(`/api/data/0/${dataset}/${sampleId}`),
+            fetch(`/api/data/1/${dataset}/${sampleId}`)
+        ]);
+
+        if (!response1.ok || !response2.ok) {
+            throw new Error('数据加载失败');
         }
-        currentData = await response.json();
+
+        currentData1 = await response1.json();
+        currentData2 = await response2.json();
+
         updateCharts();
         updateSampleInfo();
     } catch (error) {
@@ -138,12 +150,12 @@ async function onSampleChange() {
     }
 }
 
-// 更新样本信息 (保持不变)
+// 更新样本信息
 function updateSampleInfo() {
-    if (!currentData) return;
+    if (!currentData2) return;
 
-    dataLengthSpan.textContent = currentData.value.length.toLocaleString();
-    anomalyCountSpan.textContent = currentData.label.filter(l => l === 1).length.toLocaleString();
+    dataLengthSpan.textContent = currentData2.value.length.toLocaleString();
+    anomalyCountSpan.textContent = currentData2.label.filter(l => l === 1).length.toLocaleString();
     sampleInfo.classList.remove('hidden');
 }
 
@@ -181,22 +193,23 @@ function showToast(message, type = 'info') {
     }, 3000);
 }
 
-// 更新所有图表 (保持不变)
+// 更新所有图表
 function updateCharts() {
-    if (!currentData) return;
+    if (!currentData1 || !currentData2) return;
 
-    updateChart1();
-    updateChart2();
-    updateChart3();
+    updateChart1_1();  // 目录1的时序图
+    updateChart1_2();  // 目录2的时序图
+    updateChart2();    // 目录2的直方图
+    updateChart3();    // 目录2的散点图
 }
 
 
 /**
  * 【重构核心】：图一，时序与异常分数对齐图，采用 Multi-Grid 垂直联动的出版级布局
- * 用于生成目标图片 image_3.png 的效果
+ * 目录1的数据
  */
-function updateChart1() {
-    const { value, label, anomaly_score } = currentData;
+function updateChart1_1() {
+    const { value, label, anomaly_score } = currentData1;
     const xData = Array.from({ length: value.length }, (_, i) => i);
 
     // 【第一步：精准分类提取“连续区间”和“单个异常点”】
@@ -305,12 +318,129 @@ function updateChart1() {
         ]
     };
 
-    chart1.setOption(option, true);
+    chart1_1.setOption(option, true);
+}
+
+/**
+ * 图一-2，时序与异常分数对齐图
+ * 目录2的数据
+ */
+function updateChart1_2() {
+    const { value, label, anomaly_score } = currentData2;
+    const xData = Array.from({ length: value.length }, (_, i) => i);
+
+    // 【第一步：精准分类提取"连续区间"和"单个异常点"】
+    const markAreasData = []; // 存放连续区间（长度 >= 2）
+    const markLinesData = []; // 存放单个异常点（长度 == 1）
+    let start = -1;
+
+    for (let i = 0; i < label.length; i++) {
+        if (label[i] === 1 && start === -1) {
+            start = i; // 记录异常的起点
+        } else if (label[i] === 0 && start !== -1) {
+            const end = i - 1; // 异常结束
+            if (start === end) {
+                // 如果起点和终点是同一个索引，说明是【单个异常点】
+                markLinesData.push({ xAxis: start });
+            } else {
+                // 如果起点和终点不同，说明是【连续异常区间】
+                markAreasData.push([{ xAxis: start }, { xAxis: end }]);
+            }
+            start = -1; // 重置起点
+        }
+    }
+    // 处理序列末尾正好是异常的情况
+    if (start !== -1) {
+        const end = label.length - 1;
+        if (start === end) {
+            markLinesData.push({ xAxis: start });
+        } else {
+            markAreasData.push([{ xAxis: start }, { xAxis: end }]);
+        }
+    }
+
+    // 【第二步：分别定义上半图（原始信号）和下半图（异常分数）的红底与红线】
+
+    // 1. 上半部分：为了不遮挡蓝色的原始信号线，颜色用浅红色，线也用浅色
+    const topMarkArea = { silent: true, itemStyle: { color: 'rgba(255, 0, 0, 0.3)' }, data: markAreasData };
+    const topMarkLine = {
+        silent: true,
+        symbol: 'none', // 不显示两端的箭头或圆点
+        lineStyle: { color: 'rgba(255, 0, 0, 0.5)', type: 'solid', width: 2 }, // 强制2像素宽的实线，确保可见
+        data: markLinesData
+    };
+
+    // 2. 下半部分：为了形成强烈视觉冲击，颜色用深红色，线也用深色
+    const bottomMarkArea = { silent: true, itemStyle: { color: 'rgba(255, 0, 0, 0.9)' }, data: markAreasData };
+    const bottomMarkLine = {
+        silent: true,
+        symbol: 'none',
+        lineStyle: { color: 'rgba(255, 0, 0, 0.9)', type: 'solid', width: 2 }, // 深色2像素粗线
+        data: markLinesData
+    };
+
+    // 【第三步：构建 ECharts 渲染配置】
+    const option = {
+        animation: false,
+        tooltip: { trigger: 'axis', axisPointer: { type: 'cross' } },
+        legend: { data: ['原始信号', '异常分数'], top: 10 },
+        // 上下分栏布局
+        grid: [
+            { left: 70, right: 30, top: 50, height: 140 },
+            { left: 70, right: 30, top: 220, height: 80 }
+        ],
+        xAxis: [
+            { type: 'category', data: xData, gridIndex: 0, axisLabel: { show: false }, axisTick: { show: false } },
+            { type: 'category', data: xData, gridIndex: 1, name: '时间步', nameLocation: 'middle', nameGap: 30 }
+        ],
+        yAxis: [
+            { type: 'value', name: '原始信号', nameLocation: 'middle', nameGap: 50, gridIndex: 0, axisLine: { show: true, lineStyle: { color: '#0000ff' } }, splitLine: { show: true, lineStyle: { type: 'dashed' } } },
+            { type: 'value', name: '异常分数', nameLocation: 'middle', nameGap: 50, min: 0, max: 1, gridIndex: 1, axisLine: { show: true, lineStyle: { color: '#008000' } }, splitLine: { show: false } }
+        ],
+        dataZoom: [
+            { type: 'slider', xAxisIndex: [0, 1], start: 0, end: 100, height: 20, bottom: 8 },
+            { type: 'inside', xAxisIndex: [0, 1], zoomOnMouseWheel: true, moveOnMouseMove: true }
+        ],
+        series: [
+            {
+                name: '原始信号',
+                type: 'line',
+                xAxisIndex: 0,
+                yAxisIndex: 0,
+                data: value,
+                large: true,
+                progressive: 3000,
+                symbol: 'none',
+                lineStyle: { width: 1.5 },
+                itemStyle: { color: '#0000ff' }, // 蓝色
+                // 【核心挂载】：同时挂载面积（处理区间）和线（处理单点）
+                markArea: markAreasData.length > 0 ? topMarkArea : undefined,
+                markLine: markLinesData.length > 0 ? topMarkLine : undefined
+            },
+            {
+                name: '异常分数',
+                type: 'line',
+                xAxisIndex: 1,
+                yAxisIndex: 1,
+                data: anomaly_score,
+                large: true,
+                progressive: 3000,
+                symbol: 'none',
+                lineStyle: { width: 1.5 },
+                itemStyle: { color: '#008000' }, // 绿色
+                // 【核心挂载】：同时挂载面积（处理区间）和线（处理单点）
+                markArea: markAreasData.length > 0 ? bottomMarkArea : undefined,
+                markLine: markLinesData.length > 0 ? bottomMarkLine : undefined
+            }
+        ]
+    };
+
+    chart1_2.setOption(option, true);
 }
 
 // 图二：区分度分析直方图（已完美重构：双 Y 轴解耦数量级 + 过滤 Padding + 消除 0 残留）
 function updateChart2() {
-    const { label, anomaly_score } = currentData;
+    const { label, anomaly_score } = currentData2;
 
     // 1. 分离真正常和真异常分数（显式排除 label === -1 的 Padding 数据）
     const normalScores = [];
@@ -466,9 +596,9 @@ function updateChart2() {
     chart2.setOption(option, true);
 }
 
-// 图三：关联性散点图 (保持不变)
+// 图三：关联性散点图
 function updateChart3() {
-    const { value, anomaly_score } = currentData;
+    const { value, anomaly_score } = currentData2;
 
     // 计算散点数据 [abs(value), anomaly_score]
     const scatterData = [];
@@ -542,7 +672,7 @@ function updateChart3() {
 
 /**
  * 键盘导航控制（重构版）：
- * - 左右方向键：强制拦截，控制 chart1 的 dataZoom 滑块平移
+ * - 左右方向键：强制拦截，控制 chart1_1 和 chart1_2 的 dataZoom 滑块平移
  * - 上下方向键：焦点在 SELECT 上时放行原生行为，否则手动切换样本
  */
 function setupKeyboardNavigation() {
@@ -559,12 +689,12 @@ function setupKeyboardNavigation() {
         // ============================================
         if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
             // 检查全局变量是否存在
-            if (!currentData || !chart1) {
+            if (!currentData1 || !currentData2 || !chart1_1 || !chart1_2) {
                 return;
             }
 
             // 获取当前图表配置
-            const option = chart1.getOption();
+            const option = chart1_1.getOption();
             if (!option.dataZoom || option.dataZoom.length === 0) {
                 return;
             }
@@ -591,8 +721,14 @@ function setupKeyboardNavigation() {
                 start = end - range;
             }
 
-            // 触发 ECharts 重绘
-            chart1.dispatchAction({
+            // 触发 ECharts 重绘（两个时序图同步缩放）
+            chart1_1.dispatchAction({
+                type: 'dataZoom',
+                dataZoomIndex: 0,
+                start: start,
+                end: end
+            });
+            chart1_2.dispatchAction({
                 type: 'dataZoom',
                 dataZoomIndex: 0,
                 start: start,

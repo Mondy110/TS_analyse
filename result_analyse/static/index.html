@@ -55,26 +55,34 @@
 
         <!-- Main Dashboard -->
         <main class="flex-1 p-6">
-            <!-- Chart 1: Time-Series Alignment -->
-            <div class="bg-white rounded-lg shadow-sm border border-gray-200 mb-6">
+            <!-- Chart 1-1: Time-Series Alignment (Directory 1) -->
+            <div class="bg-white rounded-lg shadow-sm border border-gray-200 mb-4">
                 <div class="px-4 py-3 border-b border-gray-200">
-                    <h2 class="text-lg font-medium text-gray-800">时序与异常分数对齐图</h2>
+                    <h2 class="text-lg font-medium text-gray-800">时序与异常分数对齐图 <span class="text-sm text-gray-500">(目录1)</span></h2>
                 </div>
-                <div id="chart1" class="chart-container"></div>
+                <div id="chart1_1" class="chart-container"></div>
             </div>
 
-            <!-- Chart 2: Distribution Histogram -->
+            <!-- Chart 1-2: Time-Series Alignment (Directory 2) -->
             <div class="bg-white rounded-lg shadow-sm border border-gray-200 mb-6">
                 <div class="px-4 py-3 border-b border-gray-200">
-                    <h2 class="text-lg font-medium text-gray-800">区分度分析直方图</h2>
+                    <h2 class="text-lg font-medium text-gray-800">时序与异常分数对齐图 <span class="text-sm text-gray-500">(目录2)</span></h2>
+                </div>
+                <div id="chart1_2" class="chart-container"></div>
+            </div>
+
+            <!-- Chart 2: Distribution Histogram (Directory 2) -->
+            <div class="bg-white rounded-lg shadow-sm border border-gray-200 mb-6">
+                <div class="px-4 py-3 border-b border-gray-200">
+                    <h2 class="text-lg font-medium text-gray-800">区分度分析直方图 <span class="text-sm text-gray-500">(目录2)</span></h2>
                 </div>
                 <div id="chart2" class="chart-container"></div>
             </div>
 
-            <!-- Chart 3: Correlation Scatter -->
+            <!-- Chart 3: Correlation Scatter (Directory 2) -->
             <div class="bg-white rounded-lg shadow-sm border border-gray-200">
                 <div class="px-4 py-3 border-b border-gray-200">
-                    <h2 class="text-lg font-medium text-gray-800">关联性散点图</h2>
+                    <h2 class="text-lg font-medium text-gray-800">关联性散点图 <span class="text-sm text-gray-500">(目录2)</span></h2>
                 </div>
                 <div id="chart3" class="chart-container"></div>
             </div>

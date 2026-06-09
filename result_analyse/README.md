@@ -4,7 +4,10 @@
 
 ## 功能特性
 
-- **数据集管理**：自动扫描并解析指定目录下的 pkl 文件
+- **双目录对比**：支持对比两个不同训练次数的异常检测结果
+- **时序图对比**：上下两个时序图分别显示两个目录的数据
+- **统计图表**：直方图和散点图显示第二个目录的数据
+- **数据集管理**：自动扫描两个目录并计算数据集交集
 - **交互式可视化**：
   - 时序与异常分数对齐图（上下分栏联动布局）
   - 区分度分析直方图（双 Y 轴）
@@ -41,11 +44,8 @@ pkl 文件应包含以下字段：
 ### 2. 启动服务
 
 ```bash
-# 默认数据目录 ./output/VETime，端口 8000
-python app.py
-
-# 指定数据目录和端口
-python app.py --data-dir /path/to/data --port 8080
+# 指定两个数据目录和端口
+python app.py --dir1 /path/to/data1 --dir2 /path/to/data2 --port 8000
 ```
 
 ### 3. 访问看板
@@ -76,5 +76,5 @@ result_analyse/
 | 接口 | 方法 | 说明 |
 |------|------|------|
 | `/` | GET | 前端页面 |
-| `/api/datasets` | GET | 获取数据集列表 |
-| `/api/data/{dataset}/{sample_id}` | GET | 获取样本数据 |
+| `/api/datasets` | GET | 获取数据集列表（两个目录的交集） |
+| `/api/data/{dir_index}/{dataset}/{sample_id}` | GET | 获取样本数据（dir_index: 0=目录1, 1=目录2） |
