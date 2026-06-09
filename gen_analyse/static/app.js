@@ -285,47 +285,118 @@ function renderCharts(samples) {
 }
 
 /**
- * 渲染单个样本的图表（已升级为三图联动：纯净序列、含异常序列、残差序列）
+ * 渲染单个样本的图表（左文右图布局）
  *
  * @param {Object} sample - 单个样本数据
  * @param {number} index - 样本序号
  */
 function renderSingleChart(sample, index) {
-    // 【修改点 1】：增大容器和图表的高度，给第三个图留出足够的空间
+    // 主容器：左文右图 Flexbox 布局
     const chartWrapper = document.createElement('div');
-    chartWrapper.className = 'w-full h-[780px] bg-white rounded-lg shadow p-4';
-    chartWrapper.innerHTML = `
-        <div class="text-sm text-gray-600 mb-2">
-            样本 #${index} |
-            序列长度: ${sample.time_series.length} |
-            异常点数: ${sample.labels.filter(l => l === 1).length}
+    chartWrapper.className = 'w-full flex flex-row gap-6 bg-white rounded-lg shadow-lg p-6 mb-8';
+
+    // ==================== 左侧信息面板 (w-1/4) ====================
+    const leftPanel = document.createElement('div');
+    leftPanel.className = 'w-1/4 flex flex-col overflow-y-auto max-h-[720px]';
+
+    // 安全提取 full_attribute_pool
+    const fullAttr = sample?.attribute?.full_attribute_pool || null;
+
+    // 区块A: 基础信息
+    const basicInfo = document.createElement('div');
+    basicInfo.className = 'mb-6';
+    basicInfo.innerHTML = `
+        <h3 class="text-lg font-bold text-gray-800 mb-3 border-b pb-2">基础信息</h3>
+        <div class="space-y-2 text-sm text-gray-700">
+            <p><span class="font-medium">样本序号:</span> #${index}</p>
+            <p><span class="font-medium">序列长度:</span> ${sample.time_series.length}</p>
+            <p><span class="font-medium">异常点总数:</span> ${sample.labels.filter(l => l === 1).length}</p>
         </div>
-        <div id="chart-${index}" style="width: 100%; height: 720px;"></div>
     `;
+    leftPanel.appendChild(basicInfo);
+
+    // 区块B: 宏观特征 (Normal Patterns)
+    const seasonal = fullAttr?.seasonal?.type || sample?.attribute?.seasonal || 'N/A';
+    const trend = fullAttr?.trend?.type || sample?.attribute?.trend || 'N/A';
+    const frequency = fullAttr?.frequency?.type || sample?.attribute?.frequency || 'N/A';
+    const noiseType = fullAttr?.noise?.type || sample?.attribute?.noise || 'N/A';
+    const noiseStd = fullAttr?.noise?.std != null ? fullAttr.noise.std.toFixed(3) : 'N/A';
+
+    const normalPatterns = document.createElement('div');
+    normalPatterns.className = 'mb-6';
+    normalPatterns.innerHTML = `
+        <h3 class="text-lg font-bold text-gray-800 mb-3 border-b pb-2">宏观特征 (Normal Patterns)</h3>
+        <div class="space-y-2 text-sm text-gray-700">
+            <p><span class="font-medium">Seasonal:</span> ${seasonal}</p>
+            <p><span class="font-medium">Trend:</span> ${trend}</p>
+            <p><span class="font-medium">Frequency:</span> ${frequency}</p>
+            <p><span class="font-medium">Noise:</span> ${noiseType}</p>
+            <p><span class="font-medium">Noise Std:</span> ${noiseStd}</p>
+        </div>
+    `;
+    leftPanel.appendChild(normalPatterns);
+
+    // 区块C: 局部异常详情 (Local Anomalies)
+    const localAnomalies = fullAttr?.local || [];
+    const localAnomaliesSection = document.createElement('div');
+    localAnomaliesSection.className = 'mb-4';
+
+    let localAnomaliesHtml = `
+        <h3 class="text-lg font-bold text-gray-800 mb-3 border-b pb-2">局部异常详情 (Local Anomalies)</h3>
+    `;
+
+    if (localAnomalies.length === 0) {
+        localAnomaliesHtml += `<p class="text-sm text-gray-500 italic">暂无局部异常信息</p>`;
+    } else {
+        localAnomalies.forEach(function(anomaly, i) {
+            const amp = anomaly?.amplitude != null ? anomaly.amplitude.toFixed(2) : 'N/A';
+            localAnomaliesHtml += `
+                <div class="bg-red-50 border border-red-200 rounded p-3 mb-3">
+                    <div class="font-medium text-red-800 mb-1">
+                        异常点 #${i + 1}: ${anomaly?.type || 'Unknown'}
+                    </div>
+                    <div class="text-xs text-gray-600 space-y-1">
+                        <p><span class="font-medium">区间:</span> ${anomaly?.position_start ?? '?'} - ${anomaly?.position_end ?? '?'}</p>
+                        <p><span class="font-medium">振幅:</span> ${amp}</p>
+                        <p class="text-gray-700">${anomaly?.detail || '无详细描述'}</p>
+                    </div>
+                </div>
+            `;
+        });
+    }
+
+    localAnomaliesSection.innerHTML = localAnomaliesHtml;
+    leftPanel.appendChild(localAnomaliesSection);
+
+    chartWrapper.appendChild(leftPanel);
+
+    // ==================== 右侧图表区域 (w-3/4) ====================
+    const rightPanel = document.createElement('div');
+    rightPanel.className = 'w-3/4 flex flex-col';
+
+    const chartContainer = document.createElement('div');
+    chartContainer.id = `chart-${index}`;
+    chartContainer.style.width = '100%';
+    chartContainer.style.height = '720px';
+
+    rightPanel.appendChild(chartContainer);
+    chartWrapper.appendChild(rightPanel);
+
     chartsContainer.appendChild(chartWrapper);
 
-    // 初始化 ECharts
+    // ==================== ECharts 配置（保持原有三图联动逻辑） ====================
     const chartDom = document.getElementById(`chart-${index}`);
     const myChart = echarts.init(chartDom);
 
-    // 生成 X 轴索引数组
     const indices = Array.from({ length: sample.time_series.length }, (_, i) => i);
-
-    // 计算异常区间
     const anomalyRegions = computeAnomalyRegions(sample.labels);
-
-    // 构建 markArea 数据（异常区间高亮区域）
     const markAreaData = anomalyRegions.map(region => [
         { coord: [region.start, 'min'] },
         { coord: [region.end, 'max'] }
     ]);
-
-    // 【修改点 2】：计算残差序列（异常序列 减去 纯净序列）
     const differenceSeries = sample.time_series.map((val, i) => val - sample.normal_time_series[i]);
 
-    // ECharts 配置项
     const option = {
-        // 标题配置（升级为三个标题）
         title: [
             {
                 text: 'Normal Time Series (纯净序列)',
@@ -336,86 +407,40 @@ function renderSingleChart(sample, index) {
             {
                 text: 'Time Series (含异常序列)',
                 left: 'center',
-                top: '34%', // 调整垂直位置
+                top: '34%',
                 textStyle: { fontSize: 14, color: '#10b981' }
             },
             {
                 text: 'Difference Series (残差序列: 异常 - 纯净)',
                 left: 'center',
-                top: '66%', // 第三幅图的标题
-                textStyle: { fontSize: 14, color: '#ec4899' } // 使用粉紫色区分
+                top: '66%',
+                textStyle: { fontSize: 14, color: '#ec4899' }
             }
         ],
-
-        // 提示框配置
         tooltip: {
             trigger: 'axis',
             axisPointer: { type: 'cross' }
         },
-
-        // 图例配置
         legend: {
             data: ['Normal', 'Anomaly', 'Difference'],
             top: 30
         },
-
-        // 【修改点 3】：升级为三网格布局，平分垂直空间
         grid: [
-            // 上方网格：纯净序列
-            {
-                left: '10%',
-                right: '5%',
-                top: '8%',
-                height: '22%'
-            },
-            // 中间网格：含异常序列
-            {
-                left: '10%',
-                right: '5%',
-                top: '40%',
-                height: '22%'
-            },
-            // 下方网格：残差序列
-            {
-                left: '10%',
-                right: '5%',
-                top: '72%',
-                height: '22%'
-            }
+            { left: '10%', right: '5%', top: '8%', height: '22%' },
+            { left: '10%', right: '5%', top: '40%', height: '22%' },
+            { left: '10%', right: '5%', top: '72%', height: '22%' }
         ],
-
-        // X 轴配置（关联三个网格，只有最下方的图显示刻度标签）
         xAxis: [
-            {
-                type: 'category',
-                gridIndex: 0,
-                data: indices,
-                axisLabel: { show: false }
-            },
-            {
-                type: 'category',
-                gridIndex: 1,
-                data: indices,
-                axisLabel: { show: false }
-            },
-            {
-                type: 'category',
-                gridIndex: 2,
-                data: indices,
-                axisLabel: { show: true } // 仅最后一幅图显示时间步刻度
-            }
+            { type: 'category', gridIndex: 0, data: indices, axisLabel: { show: false } },
+            { type: 'category', gridIndex: 1, data: indices, axisLabel: { show: false } },
+            { type: 'category', gridIndex: 2, data: indices, axisLabel: { show: true } }
         ],
-
-        // Y 轴配置
         yAxis: [
             { type: 'value', gridIndex: 0 },
             { type: 'value', gridIndex: 1 },
             { type: 'value', gridIndex: 2 }
         ],
-
-        // 数据系列
         series: [
-            // 1. 上方：纯净序列
             {
                 name: 'Normal',
                 type: 'line',
@@ -425,7 +450,6 @@ function renderSingleChart(sample, index) {
                 lineStyle: { color: '#3b82f6', width: 1 },
                 showSymbol: false
             },
-            // 2. 中间：含异常序列（包含红色异常区域高亮）
             {
                 name: 'Anomaly',
                 type: 'line',
@@ -436,28 +460,21 @@ function renderSingleChart(sample, index) {
                 showSymbol: false,
                 markArea: {
                     data: markAreaData,
-                    itemStyle: {
-                        color: 'rgba(239, 68, 68, 0.3)'
-                    }
+                    itemStyle: { color: 'rgba(239, 68, 68, 0.3)' }
                 }
             },
-            // 3. 下方：残差序列（同样包含红色异常区域高亮）
             {
                 name: 'Difference',
                 type: 'line',
                 xAxisIndex: 2,
                 yAxisIndex: 2,
                 data: differenceSeries,
-                lineStyle: { color: '#ec4899', width: 1.2 }, // 稍粗一点方便观察
+                lineStyle: { color: '#ec4899', width: 1.2 },
                 showSymbol: false,
-                // 同步标记异常区域（半透明红色区域）
                 markArea: {
                     data: markAreaData,
-                    itemStyle: {
-                        color: 'rgba(239, 68, 68, 0.3)'
-                    }
+                    itemStyle: { color: 'rgba(239, 68, 68, 0.3)' }
                 },
-                // 额外添加一条 Y=0 的虚线作为基准线，更直观看出正负偏差
                 markLine: {
                     silent: true,
                     symbol: 'none',
@@ -467,25 +484,22 @@ function renderSingleChart(sample, index) {
                 }
             }
         ],
-
-        // 【修改点 4】：将 xAxisIndex 扩展到 [0, 1, 2]，实现三图完美同步缩放和平移
         dataZoom: [
             {
                 type: 'slider',
-                xAxisIndex: [0, 1, 2], // 联动三个网格的 X 轴
+                xAxisIndex: [0, 1, 2],
                 bottom: 15,
                 height: 18
             },
             {
                 type: 'inside',
-                xAxisIndex: [0, 1, 2], // 滚轮同时缩放三个网格
+                xAxisIndex: [0, 1, 2],
                 zoomOnMouseWheel: true,
                 moveOnMouseMove: true
             }
         ]
     };
 
-    // 应用配置项并渲染
     myChart.setOption(option);
 }
 
