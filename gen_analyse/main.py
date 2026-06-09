@@ -5,10 +5,12 @@
 1. FastAPI 应用初始化和配置
 2. 静态文件和模板目录挂载
 3. 数据懒加载机制
-4. API 路由定义
+4. 多进程并行构建全局倒排索引
+5. API 路由定义
 
 作者：VETime 项目组
 日期：2026-06-08
+优化日期：2026-06-09 - 多进程并行 + 倒排索引架构
 """
 
 # ============================================================================
@@ -30,6 +32,8 @@ from starlette.responses import HTMLResponse
 import pickle      # 用于加载 pickle 格式的数据文件
 import numpy as np # NumPy 数组处理（数据集中的数组格式）
 import argparse    # 命令行参数解析
+import os          # 操作系统接口，获取 CPU 核心数
+from concurrent.futures import ProcessPoolExecutor  # 多进程并行计算
 
 # 类型提示和路径处理
 from typing import List, Dict, Any, Optional
@@ -77,69 +81,18 @@ _loading: bool = False
 _load_error: Optional[str] = None
 _data_path: Optional[Path] = None
 
-
-def get_data() -> List[Dict[str, Any]]:
-    """
-    懒加载数据函数
-
-    实现按需加载策略：
-    1. 首次调用时，从 pickle 文件加载数据到内存
-    2. 后续调用直接返回缓存的数据
-    3. 使用加载锁防止并发加载
-
-    Returns:
-        List[Dict]: 包含所有样本的列表
-
-    Raises:
-        HTTPException: 数据加载失败或正在加载中
-    """
-    global _data_cache, _loading, _load_error
-
-    # 如果数据已加载，直接返回缓存
-    if _data_cache is not None:
-        return _data_cache
-
-    # 如果正在加载，返回 503 服务不可用
-    if _loading:
-        raise HTTPException(
-            status_code=503,
-            detail="数据正在加载中，请稍后重试"
-        )
-
-    # 设置加载锁
-    _loading = True
-
-    try:
-        # 数据文件路径通过命令行参数设置
-        if _data_path is None:
-            raise HTTPException(
-                status_code=500,
-                detail="数据路径未设置，请通过 --data-path 参数指定数据文件路径"
-            )
-
-        # 使用 pickle 加载数据
-        # pickle.load 会反序列化 Python 对象
-        with open(_data_path, 'rb') as f:
-            _data_cache = pickle.load(f)
-
-        print(f"数据加载成功：共 {_data_cache.__len__()} 个样本")
-        return _data_cache
-
-    except Exception as e:
-        # 记录错误信息
-        _load_error = str(e)
-        raise HTTPException(
-            status_code=500,
-            detail=f"数据加载失败: {e}"
-        )
-    finally:
-        # 无论成功或失败，都释放加载锁
-        _loading = False
-
-
 # ============================================================================
-# 第五部分：辅助函数
+# 全局高性能倒排索引缓存变量
 # ============================================================================
+
+# 层级化的异常类型数据缓存，供 /api/anomaly_types 直接 O(1) 秒回
+_hierarchical_types_cache: Optional[Dict[str, Any]] = None
+
+# 子类名称到样本物理索引（Index 整数列表）的全局倒排索引字典
+_anomaly_type_to_indices: Dict[str, List[int]] = {}
+
+# 一级大类名称到样本物理索引的全局倒排索引字典
+_category_to_indices: Dict[str, List[int]] = {}
 
 # 层级分类映射规则
 # 定义一级大类到关键词的映射关系
@@ -155,7 +108,161 @@ CATEGORY_KEYWORDS = {
 FALLBACK_CATEGORY = "Shape Anomalies (形态畸变)"
 
 
-def classify_anomaly_type(anomaly_type: str) -> str:
+# ============================================================================
+# 第五部分：辅助函数
+# ============================================================================
+
+def _parse_sample_anomalies_chunk(anomalies_chunk: List[Dict[str, Any]]) -> List[List[str]]:
+    """
+    多进程分块解析函数 - 提取异常类型列表
+
+    该函数位于模块顶层，确保可被 Pickle 序列化。
+    只接收包含 anomalies 字典的轻量切片列表，遍历提取并返回对应的纯字符串异常类型列表。
+
+    Args:
+        anomalies_chunk: 包含多个样本 anomalies 字典的列表切片
+
+    Returns:
+        List[List[str]]: 每个样本对应的异常类型列表的列表
+    """
+    results = []
+    for anomalies in anomalies_chunk:
+        types = []
+        for key in anomalies.keys():
+            # 使用 split('_', 1) 只分割第一个下划线
+            # '0_outlier' -> ['0', 'outlier']
+            # '1_upward spike' -> ['1', 'upward spike']
+            parts = key.split('_', 1)
+            if len(parts) > 1:
+                types.append(parts[1])
+        results.append(types)
+    return results
+
+
+def _build_global_indices() -> None:
+    """
+    构建全局倒排索引 - 多进程并行优化版本
+
+    核心优化策略：
+    1. 提取轻量的 anomalies 字典数据，避免 IPC 序列化沉重的大矩阵
+    2. 使用 ProcessPoolExecutor 多进程并行提取异常类型
+    3. 构建子类和大类的倒排索引字典，实现 O(1) 查找
+    4. 预计算并缓存层级化的异常类型数据
+    """
+    global _hierarchical_types_cache, _anomaly_type_to_indices, _category_to_indices
+
+    if _data_cache is None:
+        return
+
+    total_samples = len(_data_cache)
+    print(f"开始构建全局倒排索引，共 {total_samples} 个样本...")
+
+    # ========================================================================
+    # 第一步：提取轻量的 anomalies 字典数据（绝不要把包含时序大矩阵的整个 _data_cache 传进进程池）
+    # ========================================================================
+    print("步骤 1/4: 提取轻量 anomalies 字典数据...")
+    anomalies_list = []
+    for sample in _data_cache:
+        anomalies = sample['attribute'].get('anomalies', {})
+        anomalies_list.append(anomalies)
+
+    # ========================================================================
+    # 第二步：多进程并行提取异常类型
+    # ========================================================================
+    print("步骤 2/4: 多进程并行提取异常类型...")
+    cpu_count = os.cpu_count() or 4
+    print(f"  使用 {cpu_count} 个 CPU 核心并行处理...")
+
+    # 计算每个进程处理的块大小
+    chunk_size = max(1, total_samples // cpu_count)
+
+    # 切分数据为多个块
+    chunks = []
+    for i in range(0, total_samples, chunk_size):
+        chunks.append(anomalies_list[i:i + chunk_size])
+
+    # 多进程并行处理
+    all_types_per_sample = []
+    with ProcessPoolExecutor(max_workers=cpu_count) as executor:
+        # 并行提交所有块的处理任务
+        futures = [executor.submit(_parse_sample_anomalies_chunk, chunk) for chunk in chunks]
+
+        # 收集结果并保持顺序
+        for future in futures:
+            all_types_per_sample.extend(future.result())
+
+    # ========================================================================
+    # 第三步：构建倒排索引
+    # ========================================================================
+    print("步骤 3/4: 构建倒排索引...")
+
+    # 重置索引字典
+    _anomaly_type_to_indices = {}
+    _category_to_indices = {}
+
+    # 用于构建层级缓存
+    hierarchical_sets: Dict[str, set] = {
+        category: set() for category in CATEGORY_KEYWORDS.keys()
+    }
+    hierarchical_sets[FALLBACK_CATEGORY] = set()
+
+    # 遍历每个样本的异常类型列表，构建倒排索引
+    for sample_idx, types in enumerate(all_types_per_sample):
+        for anomaly_type in types:
+            # 构建子类倒排索引
+            if anomaly_type not in _anomaly_type_to_indices:
+                _anomaly_type_to_indices[anomaly_type] = []
+            _anomaly_type_to_indices[anomaly_type].append(sample_idx)
+
+            # 归类到一级大类
+            category = _classify_anomaly_type(anomaly_type)
+            hierarchical_sets[category].add(anomaly_type)
+
+    # 对子类索引进行自然排序
+    for anomaly_type in _anomaly_type_to_indices:
+        _anomaly_type_to_indices[anomaly_type] = sorted(_anomaly_type_to_indices[anomaly_type])
+
+    # ========================================================================
+    # 第四步：构建大类倒排索引和层级缓存
+    # ========================================================================
+    print("步骤 4/4: 构建大类倒排索引和层级缓存...")
+
+    # 获取所有大类名称
+    all_categories = list(CATEGORY_KEYWORDS.keys()) + [FALLBACK_CATEGORY]
+
+    # 大类到子类列表的映射（用于大类筛选时的 OR 展开）
+    category_to_subtypes: Dict[str, List[str]] = {}
+
+    for category in all_categories:
+        subtypes = hierarchical_sets.get(category, set())
+        if subtypes:
+            # 排序子类列表
+            category_to_subtypes[category] = sorted(list(subtypes))
+
+            # 合并该大类下所有子类的索引
+            merged_indices = set()
+            for subtype in subtypes:
+                if subtype in _anomaly_type_to_indices:
+                    merged_indices.update(_anomaly_type_to_indices[subtype])
+
+            # 自然排序
+            _category_to_indices[category] = sorted(list(merged_indices))
+
+    # 构建层级缓存（预格式化并排序）
+    _hierarchical_types_cache = {
+        category: sorted(list(subtypes))
+        for category, subtypes in hierarchical_sets.items()
+        if subtypes
+    }
+
+    # 打印统计信息
+    print(f"全局倒排索引构建完成！")
+    print(f"  - 子类数量: {len(_anomaly_type_to_indices)}")
+    print(f"  - 大类数量: {len(_category_to_indices)}")
+    print(f"  - 层级缓存条目: {len(_hierarchical_types_cache)}")
+
+
+def _classify_anomaly_type(anomaly_type: str) -> str:
     """
     根据关键词将异常类型归类到一级大类
 
@@ -254,6 +361,72 @@ def convert_sample_to_json(sample: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def get_data() -> List[Dict[str, Any]]:
+    """
+    懒加载数据函数
+
+    实现按需加载策略：
+    1. 首次调用时，从 pickle 文件加载数据到内存
+    2. 加载完成后立即构建全局倒排索引
+    3. 后续调用直接返回缓存的数据
+    4. 使用加载锁防止并发加载
+
+    Returns:
+        List[Dict]: 包含所有样本的列表
+
+    Raises:
+        HTTPException: 数据加载失败或正在加载中
+    """
+    global _data_cache, _loading, _load_error
+
+    # 如果数据已加载，直接返回缓存
+    if _data_cache is not None:
+        return _data_cache
+
+    # 如果正在加载，返回 503 服务不可用
+    if _loading:
+        raise HTTPException(
+            status_code=503,
+            detail="数据正在加载中，请稍后重试"
+        )
+
+    # 设置加载锁
+    _loading = True
+
+    try:
+        # 数据文件路径通过命令行参数设置
+        if _data_path is None:
+            raise HTTPException(
+                status_code=500,
+                detail="数据路径未设置，请通过 --data-path 参数指定数据文件路径"
+            )
+
+        # 使用 pickle 加载数据
+        # pickle.load 会反序列化 Python 对象
+        with open(_data_path, 'rb') as f:
+            _data_cache = pickle.load(f)
+
+        print(f"数据加载成功：共 {_data_cache.__len__()} 个样本")
+
+        # ====================================================================
+        # 核心优化：数据加载完成后立即构建全局倒排索引
+        # ====================================================================
+        _build_global_indices()
+
+        return _data_cache
+
+    except Exception as e:
+        # 记录错误信息
+        _load_error = str(e)
+        raise HTTPException(
+            status_code=500,
+            detail=f"数据加载失败: {e}"
+        )
+    finally:
+        # 无论成功或失败，都释放加载锁
+        _loading = False
+
+
 # ============================================================================
 # 第六部分：API 路由定义
 # ============================================================================
@@ -293,54 +466,17 @@ async def get_anomaly_types():
     """
     获取层级化的异常类型列表
 
+    性能优化：直接返回预计算好的 _hierarchical_types_cache 缓存
+    耗时：O(1)，约 0 毫秒
+
     返回一级大类到二级子类列表的映射字典
     用于前端两级下拉框联动
     """
-    data = get_data()
+    # 确保数据已加载（会触发倒排索引构建）
+    get_data()
 
-    # 使用字典收集每个大类下的子类
-    hierarchical_types: Dict[str, set] = {
-        category: set() for category in CATEGORY_KEYWORDS.keys()
-    }
-    hierarchical_types[FALLBACK_CATEGORY] = set()
-
-    for sample in data:
-        anomalies = sample['attribute'].get('anomalies', {})
-        types = extract_anomaly_types(anomalies)
-
-        for anomaly_type in types:
-            category = classify_anomaly_type(anomaly_type)
-            hierarchical_types[category].add(anomaly_type)
-
-    # 转换为排序后的列表，移除空分类
-    result = {}
-    for category in list(hierarchical_types.keys()):
-        if hierarchical_types[category]:
-            result[category] = sorted(list(hierarchical_types[category]))
-
-    return {"hierarchical_types": result}
-
-
-def build_hierarchical_mapping(data: List[Dict[str, Any]]) -> Dict[str, List[str]]:
-    """
-    构建大类名称到子类列表的映射
-
-    用于支持前端传入大类名称时展开为 OR 查询
-    """
-    mapping: Dict[str, set] = {
-        category: set() for category in CATEGORY_KEYWORDS.keys()
-    }
-    mapping[FALLBACK_CATEGORY] = set()
-
-    for sample in data:
-        anomalies = sample['attribute'].get('anomalies', {})
-        types = extract_anomaly_types(anomalies)
-
-        for anomaly_type in types:
-            category = classify_anomaly_type(anomaly_type)
-            mapping[category].add(anomaly_type)
-
-    return {k: list(v) for k, v in mapping.items() if v}
+    # 直接返回预计算好的缓存
+    return {"hierarchical_types": _hierarchical_types_cache}
 
 
 @app.get("/api/samples")
@@ -350,47 +486,72 @@ async def get_samples(
     page: int = Query(1, ge=1, description="当前页码")
 ):
     """
-    按异常类型筛选样本
+    按异常类型筛选样本 - 倒排索引优化版本
 
-    支持大类筛选（OR 展开）和子类精确匹配
+    核心优化：
+    1. 使用倒排索引实现 O(1) 查找匹配的样本索引
+    2. 先分页切片，再进行局部延迟序列化
+    3. 只对当前页的样本进行 NumPy 到 List 的转换
 
     参数：
     - anomaly_type: 异常类型（大类名如 'Point Anomalies (点异常)' 或子类名如 'outlier'）
     - limit: 返回的样本数量，默认 10，范围 1-100
     - page: 当前页码，默认 1，最小值 1
     """
+    # 确保数据已加载（会触发倒排索引构建）
     data = get_data()
 
-    # 构建层级映射
-    hierarchical_mapping = build_hierarchical_mapping(data)
+    # ========================================================================
+    # O(1) 倒排索引查找
+    # ========================================================================
+    target_indices: List[int] = []
 
-    # 确定目标类型列表
-    if anomaly_type in hierarchical_mapping:
-        # 大类筛选：展开为所有子类的 OR 查询
-        target_types = hierarchical_mapping[anomaly_type]
+    # 先尝试大类查找
+    if anomaly_type in _category_to_indices:
+        # 大类筛选：直接获取该大类下所有样本的索引
+        target_indices = _category_to_indices[anomaly_type]
+    elif anomaly_type in _anomaly_type_to_indices:
+        # 子类精确匹配：直接获取该子类下所有样本的索引
+        target_indices = _anomaly_type_to_indices[anomaly_type]
     else:
-        # 子类精确匹配
-        target_types = [anomaly_type]
+        # 未找到匹配类型，返回空结果
+        return {
+            "samples": [],
+            "total": 0,
+            "returned": 0,
+            "page": page
+        }
 
-    # 筛选包含目标类型的样本
-    matched_samples = []
-
-    for sample in data:
-        anomalies = sample['attribute'].get('anomalies', {})
-        types = extract_anomaly_types(anomalies)
-
-        # 检查是否包含任一目标类型
-        if any(t in types for t in target_types):
-            matched_samples.append(convert_sample_to_json(sample))
-
-    # 计算分页索引
+    # ========================================================================
+    # 分页切片计算
+    # ========================================================================
+    total = len(target_indices)
     start_idx = (page - 1) * limit
     end_idx = start_idx + limit
 
+    # 边界检查
+    if start_idx >= total:
+        return {
+            "samples": [],
+            "total": total,
+            "returned": 0,
+            "page": page
+        }
+
+    # 获取当前页所需的样本索引
+    page_indices = target_indices[start_idx:end_idx]
+
+    # ========================================================================
+    # 局部延迟序列化：只对当前页的样本进行转换
+    # ========================================================================
+    samples = []
+    for idx in page_indices:
+        samples.append(convert_sample_to_json(data[idx]))
+
     return {
-        "samples": matched_samples[start_idx:end_idx],
-        "total": len(matched_samples),
-        "returned": min(limit, max(0, len(matched_samples) - start_idx)),
+        "samples": samples,
+        "total": total,
+        "returned": len(samples),
         "page": page
     }
 
