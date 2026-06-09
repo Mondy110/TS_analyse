@@ -291,23 +291,34 @@ async def get_status():
 @app.get("/api/anomaly_types")
 async def get_anomaly_types():
     """
-    获取所有异常类型列表
+    获取层级化的异常类型列表
 
-    遍历所有样本，提取并去重异常类型
-    用于前端下拉框的选项
+    返回一级大类到二级子类列表的映射字典
+    用于前端两级下拉框联动
     """
     data = get_data()
 
-    # 使用集合去重
-    all_types = set()
+    # 使用字典收集每个大类下的子类
+    hierarchical_types: Dict[str, set] = {
+        category: set() for category in CATEGORY_KEYWORDS.keys()
+    }
+    hierarchical_types[FALLBACK_CATEGORY] = set()
 
     for sample in data:
         anomalies = sample['attribute'].get('anomalies', {})
         types = extract_anomaly_types(anomalies)
-        all_types.update(types)
 
-    # 转换为排序后的列表
-    return {"anomaly_types": sorted(list(all_types))}
+        for anomaly_type in types:
+            category = classify_anomaly_type(anomaly_type)
+            hierarchical_types[category].add(anomaly_type)
+
+    # 转换为排序后的列表，移除空分类
+    result = {}
+    for category in list(hierarchical_types.keys()):
+        if hierarchical_types[category]:
+            result[category] = sorted(list(hierarchical_types[category]))
+
+    return {"hierarchical_types": result}
 
 
 @app.get("/api/samples")
