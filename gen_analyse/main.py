@@ -321,44 +321,72 @@ async def get_anomaly_types():
     return {"hierarchical_types": result}
 
 
+def build_hierarchical_mapping(data: List[Dict[str, Any]]) -> Dict[str, List[str]]:
+    """
+    构建大类名称到子类列表的映射
+
+    用于支持前端传入大类名称时展开为 OR 查询
+    """
+    mapping: Dict[str, set] = {
+        category: set() for category in CATEGORY_KEYWORDS.keys()
+    }
+    mapping[FALLBACK_CATEGORY] = set()
+
+    for sample in data:
+        anomalies = sample['attribute'].get('anomalies', {})
+        types = extract_anomaly_types(anomalies)
+
+        for anomaly_type in types:
+            category = classify_anomaly_type(anomaly_type)
+            mapping[category].add(anomaly_type)
+
+    return {k: list(v) for k, v in mapping.items() if v}
+
+
 @app.get("/api/samples")
 async def get_samples(
-    anomaly_type: str = Query(..., description="异常类型"),
+    anomaly_type: str = Query(..., description="异常类型（大类或子类）"),
     limit: int = Query(10, ge=1, le=100, description="返回样本数量"),
     page: int = Query(1, ge=1, description="当前页码")
 ):
     """
     按异常类型筛选样本
 
+    支持大类筛选（OR 展开）和子类精确匹配
+
     参数：
-    - anomaly_type: 异常类型（如 'outlier', 'upward spike' 等）
+    - anomaly_type: 异常类型（大类名如 'Point Anomalies (点异常)' 或子类名如 'outlier'）
     - limit: 返回的样本数量，默认 10，范围 1-100
     - page: 当前页码，默认 1，最小值 1
-
-    返回：
-    - samples: 符合条件的样本列表
-    - total: 符合条件的样本总数
-    - page: 当前页码
     """
     data = get_data()
 
-    # 筛选包含指定异常类型的样本
+    # 构建层级映射
+    hierarchical_mapping = build_hierarchical_mapping(data)
+
+    # 确定目标类型列表
+    if anomaly_type in hierarchical_mapping:
+        # 大类筛选：展开为所有子类的 OR 查询
+        target_types = hierarchical_mapping[anomaly_type]
+    else:
+        # 子类精确匹配
+        target_types = [anomaly_type]
+
+    # 筛选包含目标类型的样本
     matched_samples = []
 
     for sample in data:
         anomalies = sample['attribute'].get('anomalies', {})
         types = extract_anomaly_types(anomalies)
 
-        # 检查是否包含目标异常类型
-        if anomaly_type in types:
-            # 转换为 JSON 可序列化格式
+        # 检查是否包含任一目标类型
+        if any(t in types for t in target_types):
             matched_samples.append(convert_sample_to_json(sample))
 
     # 计算分页索引
     start_idx = (page - 1) * limit
     end_idx = start_idx + limit
 
-    # 返回指定页的样本
     return {
         "samples": matched_samples[start_idx:end_idx],
         "total": len(matched_samples),
