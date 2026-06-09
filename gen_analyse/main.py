@@ -155,6 +155,26 @@ CATEGORY_KEYWORDS = {
 FALLBACK_CATEGORY = "Shape Anomalies (形态畸变)"
 
 
+def classify_anomaly_type(anomaly_type: str) -> str:
+    """
+    根据关键词将异常类型归类到一级大类
+
+    Args:
+        anomaly_type: 异常类型名称（如 'outlier', 'upward spike'）
+
+    Returns:
+        str: 一级大类名称
+    """
+    anomaly_type_lower = anomaly_type.lower()
+
+    for category, keywords in CATEGORY_KEYWORDS.items():
+        for keyword in keywords:
+            if keyword in anomaly_type_lower:
+                return category
+
+    return FALLBACK_CATEGORY
+
+
 def extract_anomaly_types(anomalies: Dict[str, tuple]) -> List[str]:
     """
     从 anomalies 字典中提取异常类型
