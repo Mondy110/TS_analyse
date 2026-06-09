@@ -141,6 +141,20 @@ def get_data() -> List[Dict[str, Any]]:
 # 第五部分：辅助函数
 # ============================================================================
 
+# 层级分类映射规则
+# 定义一级大类到关键词的映射关系
+CATEGORY_KEYWORDS = {
+    "Point Anomalies (点异常)": ["outlier"],
+    "Spike Anomalies (尖峰异常)": ["spike"],
+    "Trend Change (趋势变化)": ["increase", "decrease", "decline", "rise"],
+    "Harmonic Anomalies (谐波异常)": ["harmonic"],
+    "Wavelet Anomalies (小波异常)": ["wavelet", "pulse"],
+}
+
+# 兜底分类名称
+FALLBACK_CATEGORY = "Shape Anomalies (形态畸变)"
+
+
 def extract_anomaly_types(anomalies: Dict[str, tuple]) -> List[str]:
     """
     从 anomalies 字典中提取异常类型
